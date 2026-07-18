@@ -1,0 +1,333 @@
+:root {
+  --navy: #16334f;
+  --navy-dark: #0d2338;
+  --cream: #f5f1e6;
+  --paper: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--cream);
+  color: var(--navy-dark);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+.sheet-message {
+  padding: 24px;
+  font-weight: 600;
+  color: var(--navy-dark);
+}
+
+.sheet {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(340px, 1fr);
+  grid-template-areas:
+    "header  talents"
+    "stats   talents"
+    "stats   gear";
+  gap: 14px;
+  padding: 16px;
+}
+
+.sheet-header {
+  grid-area: header;
+}
+
+.sheet-stats {
+  grid-area: stats;
+  display: grid;
+  grid-template-columns: 84px 84px 1fr 1fr;
+  grid-template-areas:
+    "str int species species"
+    "dex wis class   class"
+    "con cha level   xp"
+    "hp  ac  attacks attacks"
+    "align align attacks attacks";
+  gap: 8px;
+  align-content: start;
+}
+
+.sheet-talents {
+  grid-area: talents;
+}
+
+.sheet-gear {
+  grid-area: gear;
+}
+
+.sheet-slider {
+  grid-column: 1 / -1;
+}
+
+.area-str {
+  grid-area: str;
+}
+.area-int {
+  grid-area: int;
+}
+.area-species {
+  grid-area: species;
+}
+.area-dex {
+  grid-area: dex;
+}
+.area-wis {
+  grid-area: wis;
+}
+.area-class {
+  grid-area: class;
+}
+.area-con {
+  grid-area: con;
+}
+.area-cha {
+  grid-area: cha;
+}
+.area-level {
+  grid-area: level;
+}
+.area-xp {
+  grid-area: xp;
+}
+.area-hp {
+  grid-area: hp;
+}
+.area-ac {
+  grid-area: ac;
+}
+.area-attacks {
+  grid-area: attacks;
+}
+.area-align {
+  grid-area: align;
+}
+
+.sheet-title {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--navy);
+  line-height: 1.15;
+}
+
+.box {
+  border: 2px solid var(--navy);
+  border-radius: 3px;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 6px;
+  min-width: 0;
+}
+
+.field-label {
+  display: inline-block;
+  align-self: flex-start;
+  background: var(--navy);
+  color: var(--cream);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  padding: 3px 12px 3px 8px;
+  margin: -2px -2px 6px -2px;
+  clip-path: polygon(0 0, 100% 0, 88% 100%, 0% 100%);
+}
+
+.text-field input {
+  border: none;
+  outline: none;
+  font-size: 0.95rem;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--navy-dark);
+  width: 100%;
+}
+
+.text-area-field textarea {
+  border: none;
+  outline: none;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--navy-dark);
+  width: 100%;
+  flex: 1;
+}
+
+.box-square {
+  min-height: 70px;
+  justify-content: center;
+}
+
+.ability-box .ability-inputs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.ability-score,
+.ability-mod {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--navy-dark);
+  font-size: 1rem;
+  text-align: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.ability-slash {
+  color: var(--navy);
+  font-weight: 700;
+}
+
+.fill-box {
+  height: 100%;
+  min-height: 320px;
+}
+
+.name-field {
+  max-width: 320px;
+}
+
+.gear-box {
+  padding: 0 0 10px;
+}
+
+.gear-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -2px -2px 6px -2px;
+}
+
+.gear-box-header .field-label {
+  margin: 0;
+}
+
+.creds-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+}
+
+.creds-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--navy);
+  letter-spacing: 0.04em;
+}
+
+.creds-field input {
+  border: none;
+  border-bottom: 2px solid var(--navy);
+  outline: none;
+  width: 70px;
+  text-align: right;
+  font-size: 0.9rem;
+  background: transparent;
+  color: var(--navy-dark);
+}
+
+.gear-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  padding: 0 10px;
+}
+
+.gear-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.82rem;
+}
+
+.gear-row {
+  margin-bottom: 4px;
+  padding-left: 4px;
+}
+
+.gear-row input {
+  border: none;
+  border-bottom: 1px solid var(--navy);
+  outline: none;
+  width: 100%;
+  background: transparent;
+  color: var(--navy-dark);
+  font-size: 0.82rem;
+  padding: 1px 2px;
+}
+
+.free-to-carry {
+  width: 110px;
+  min-height: 200px;
+}
+
+.sheet-slider {
+  margin-top: 4px;
+}
+
+.slider-title {
+  margin: 0 0 6px;
+}
+
+.aether-track {
+  display: flex;
+  gap: 6px;
+}
+
+.aether-segment {
+  flex: 1;
+  border: 2px solid var(--navy);
+  border-radius: 3px;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.aether-segment-label {
+  background: var(--navy);
+  color: var(--cream);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: center;
+  padding: 4px 2px;
+}
+
+.aether-segment-boxes {
+  display: flex;
+}
+
+.aether-box {
+  flex: 1;
+  aspect-ratio: 1;
+  border: none;
+  border-right: 1px solid var(--navy);
+  background: var(--paper);
+  cursor: pointer;
+  padding: 0;
+}
+
+.aether-box:last-child {
+  border-right: none;
+}
+
+.aether-box.checked {
+  background: var(--navy);
+}

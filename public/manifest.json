@@ -1,0 +1,9 @@
+{
+  "name": "Shadows of the Star Knights — Character Sheet",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "author": "Ryan David Hartman",
+  "icon": "/icon.svg",
+  "description": "Fillable character sheet for the Shadows of the Star Knights TTRPG",
+  "background_url": "/background.html"
+}
