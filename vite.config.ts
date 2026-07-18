@@ -4,6 +4,9 @@ import { resolve } from "node:path";
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    cors: true,
+  },
   build: {
     rollupOptions: {
       input: {
