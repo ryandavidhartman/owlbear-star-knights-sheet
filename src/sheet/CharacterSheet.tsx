@@ -46,6 +46,13 @@ export function CharacterSheet() {
       const item = items.find((candidate) => candidate.id === itemId);
       if (item && mounted) {
         const loaded = readCharacterData(item);
+        if (JSON.stringify(loaded) === JSON.stringify(dataRef.current)) {
+          // onChange fires for every scene mutation (token drags, drawings,
+          // fog, etc.), not just edits to this item's metadata. Skip the
+          // re-render when nothing actually changed so unrelated scene
+          // activity doesn't stomp on in-progress typing.
+          return;
+        }
         dataRef.current = loaded;
         setData(loaded);
       }
