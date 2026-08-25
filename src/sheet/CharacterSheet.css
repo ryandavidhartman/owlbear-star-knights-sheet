@@ -14,25 +14,18 @@ body,
 #root {
   margin: 0;
   height: 100%;
-  background: transparent;
+  background: var(--cream);
   color: var(--navy-dark);
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  /* The modal is fullscreen and click-through (see contextMenu.ts) so the
-     game map stays interactive around our floating window. Only the
-     window itself (and its children) opt back in to pointer events. */
-  pointer-events: none;
   overflow: hidden;
 }
 
 .floating-window {
-  position: fixed;
   display: flex;
   flex-direction: column;
-  pointer-events: auto;
-  background: var(--cream);
-  border: 2px solid var(--navy);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  position: relative;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -48,8 +41,6 @@ body,
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  cursor: grab;
-  touch-action: none;
   user-select: none;
 }
 

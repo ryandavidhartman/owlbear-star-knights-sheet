@@ -1,13 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import OBR, { Item } from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
-import { CHARACTER_SHEET_MODAL_ID } from "../shared/modalId";
+import { CHARACTER_SHEET_WINDOW_ID } from "../shared/windowId";
 import { createDefaultCharacter } from "../shared/defaultCharacter";
 import { AbilityScore, CharacterSheetData } from "../shared/types";
 import { FloatingWindow } from "./FloatingWindow";
 
 const METADATA_KEY = getPluginId("character");
 const SAVE_DEBOUNCE_MS = 300;
+const WINDOW_SIZE_STORAGE_KEY = "sotsk-character-sheet-window-size";
+
+function loadSavedWindowSize(): { width: number; height: number } | null {
+  try {
+    const raw = window.localStorage.getItem(WINDOW_SIZE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<{ width: number; height: number }>;
+    if (typeof parsed.width === "number" && typeof parsed.height === "number") {
+      return { width: parsed.width, height: parsed.height };
+    }
+  } catch {
+    // per-viewer convenience only; ignore malformed/inaccessible storage
+  }
+  return null;
+}
 
 function getItemIdFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("itemId");
@@ -29,6 +46,33 @@ export function CharacterSheet() {
   const [data, setData] = useState<CharacterSheetData | null>(null);
   const dataRef = useRef<CharacterSheetData | null>(null);
   const saveTimeout = useRef<number | undefined>(undefined);
+  const resizeFrame = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    const saved = loadSavedWindowSize();
+    if (saved) {
+      OBR.popover.setWidth(CHARACTER_SHEET_WINDOW_ID, saved.width);
+      OBR.popover.setHeight(CHARACTER_SHEET_WINDOW_ID, saved.height);
+    }
+  }, []);
+
+  const handleResize = useCallback((width: number, height: number) => {
+    if (resizeFrame.current !== undefined) {
+      cancelAnimationFrame(resizeFrame.current);
+    }
+    resizeFrame.current = requestAnimationFrame(() => {
+      OBR.popover.setWidth(CHARACTER_SHEET_WINDOW_ID, width);
+      OBR.popover.setHeight(CHARACTER_SHEET_WINDOW_ID, height);
+      try {
+        window.localStorage.setItem(
+          WINDOW_SIZE_STORAGE_KEY,
+          JSON.stringify({ width, height })
+        );
+      } catch {
+        // per-viewer convenience only; ignore storage failures
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!itemId) {
@@ -146,12 +190,12 @@ export function CharacterSheet() {
   );
 
   const closeWindow = useCallback(() => {
-    OBR.modal.close(CHARACTER_SHEET_MODAL_ID);
+    OBR.popover.close(CHARACTER_SHEET_WINDOW_ID);
   }, []);
 
   if (!itemId) {
     return (
-      <FloatingWindow title="Character Sheet" onClose={closeWindow}>
+      <FloatingWindow title="Character Sheet" onClose={closeWindow} onResize={handleResize}>
         <div className="sheet-message">
           No character token selected. Right-click a token and choose
           &ldquo;Character Sheet&rdquo; to open it here.
@@ -162,14 +206,18 @@ export function CharacterSheet() {
 
   if (!data) {
     return (
-      <FloatingWindow title="Character Sheet" onClose={closeWindow}>
+      <FloatingWindow title="Character Sheet" onClose={closeWindow} onResize={handleResize}>
         <div className="sheet-message">Loading character sheet…</div>
       </FloatingWindow>
     );
   }
 
   return (
-    <FloatingWindow title={data.name || "Character Sheet"} onClose={closeWindow}>
+    <FloatingWindow
+      title={data.name || "Character Sheet"}
+      onClose={closeWindow}
+      onResize={handleResize}
+    >
     <div className="sheet">
       <section className="sheet-header">
         <h1 className="sheet-title">

@@ -1,6 +1,6 @@
 import OBR from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
-import { CHARACTER_SHEET_MODAL_ID } from "../shared/modalId";
+import { CHARACTER_SHEET_WINDOW_ID } from "../shared/windowId";
 
 const CONTEXT_MENU_ID = getPluginId("context-menu/character-sheet");
 
@@ -27,23 +27,25 @@ export function registerContextMenu() {
         },
       },
     ],
-    onClick(context) {
+    onClick(context, elementId) {
       const item = context.items[0];
       if (!item) {
         return;
       }
-      OBR.modal.open({
-        id: CHARACTER_SHEET_MODAL_ID,
+      // Popover (unlike Modal) supports live setWidth/setHeight, so the
+      // resize handle in the sheet can genuinely shrink/grow the on-screen
+      // footprint instead of just rearranging content inside a fixed box.
+      // It has no live reposition API though, so unlike Modal there's no
+      // drag-to-move -- it stays anchored where it opened.
+      OBR.popover.open({
+        id: CHARACTER_SHEET_WINDOW_ID,
         url: absoluteUrl(`sheet.html?itemId=${encodeURIComponent(item.id)}`),
-        // Modal has no live resize/reposition API, so this footprint is
-        // fixed on screen for as long as the modal is open (Owlbear routes
-        // all pointer events inside it to us; nothing outside a modal's own
-        // rectangle is affected either way). Sized to give the floating
-        // window room to move/resize within, without covering the whole
-        // screen the way `fullScreen` does.
-        width: 1000,
-        height: 820,
-        hideBackdrop: true,
+        width: 900,
+        height: 760,
+        anchorElementId: elementId,
+        anchorOrigin: { horizontal: "CENTER", vertical: "CENTER" },
+        transformOrigin: { horizontal: "CENTER", vertical: "CENTER" },
+        disableClickAway: true,
         hidePaper: true,
       });
     },
