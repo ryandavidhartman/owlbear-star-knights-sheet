@@ -10,8 +10,8 @@ import {
 const STORAGE_KEY = "sotsk-character-sheet-window";
 const MIN_WIDTH = 480;
 const MIN_HEIGHT = 420;
-const DEFAULT_WIDTH = 780;
-const DEFAULT_HEIGHT = 860;
+const DEFAULT_WIDTH = 900;
+const DEFAULT_HEIGHT = 760;
 
 interface Geometry {
   x: number;

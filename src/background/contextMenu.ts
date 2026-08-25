@@ -35,10 +35,16 @@ export function registerContextMenu() {
       OBR.modal.open({
         id: CHARACTER_SHEET_MODAL_ID,
         url: absoluteUrl(`sheet.html?itemId=${encodeURIComponent(item.id)}`),
-        fullScreen: true,
+        // Modal has no live resize/reposition API, so this footprint is
+        // fixed on screen for as long as the modal is open (Owlbear routes
+        // all pointer events inside it to us; nothing outside a modal's own
+        // rectangle is affected either way). Sized to give the floating
+        // window room to move/resize within, without covering the whole
+        // screen the way `fullScreen` does.
+        width: 1000,
+        height: 820,
         hideBackdrop: true,
         hidePaper: true,
-        disablePointerEvents: true,
       });
     },
   });
