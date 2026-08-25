@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import OBR, { Item } from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
+import { CHARACTER_SHEET_MODAL_ID } from "../shared/modalId";
 import { createDefaultCharacter } from "../shared/defaultCharacter";
 import { AbilityScore, CharacterSheetData } from "../shared/types";
+import { FloatingWindow } from "./FloatingWindow";
 
 const METADATA_KEY = getPluginId("character");
 const SAVE_DEBOUNCE_MS = 300;
@@ -143,20 +145,31 @@ export function CharacterSheet() {
     [update]
   );
 
+  const closeWindow = useCallback(() => {
+    OBR.modal.close(CHARACTER_SHEET_MODAL_ID);
+  }, []);
+
   if (!itemId) {
     return (
-      <div className="sheet-message">
-        No character token selected. Right-click a token and choose
-        &ldquo;Character Sheet&rdquo; to open it here.
-      </div>
+      <FloatingWindow title="Character Sheet" onClose={closeWindow}>
+        <div className="sheet-message">
+          No character token selected. Right-click a token and choose
+          &ldquo;Character Sheet&rdquo; to open it here.
+        </div>
+      </FloatingWindow>
     );
   }
 
   if (!data) {
-    return <div className="sheet-message">Loading character sheet…</div>;
+    return (
+      <FloatingWindow title="Character Sheet" onClose={closeWindow}>
+        <div className="sheet-message">Loading character sheet…</div>
+      </FloatingWindow>
+    );
   }
 
   return (
+    <FloatingWindow title={data.name || "Character Sheet"} onClose={closeWindow}>
     <div className="sheet">
       <section className="sheet-header">
         <h1 className="sheet-title">
@@ -266,6 +279,7 @@ export function CharacterSheet() {
         </div>
       </section>
     </div>
+    </FloatingWindow>
   );
 }
 

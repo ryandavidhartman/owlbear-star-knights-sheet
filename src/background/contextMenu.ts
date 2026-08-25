@@ -1,8 +1,8 @@
 import OBR from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
+import { CHARACTER_SHEET_MODAL_ID } from "../shared/modalId";
 
 const CONTEXT_MENU_ID = getPluginId("context-menu/character-sheet");
-const MODAL_ID = getPluginId("modal/character-sheet");
 
 /**
  * The SDK resolves relative icon/url paths as `${location.origin}${path}`,
@@ -33,10 +33,12 @@ export function registerContextMenu() {
         return;
       }
       OBR.modal.open({
-        id: MODAL_ID,
+        id: CHARACTER_SHEET_MODAL_ID,
         url: absoluteUrl(`sheet.html?itemId=${encodeURIComponent(item.id)}`),
-        width: 760,
-        height: 840,
+        fullScreen: true,
+        hideBackdrop: true,
+        hidePaper: true,
+        disablePointerEvents: true,
       });
     },
   });

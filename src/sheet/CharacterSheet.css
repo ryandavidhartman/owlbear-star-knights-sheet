@@ -10,11 +10,92 @@
 }
 
 html,
-body {
+body,
+#root {
   margin: 0;
-  background: var(--cream);
+  height: 100%;
+  background: transparent;
   color: var(--navy-dark);
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* The modal is fullscreen and click-through (see contextMenu.ts) so the
+     game map stays interactive around our floating window. Only the
+     window itself (and its children) opt back in to pointer events. */
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.floating-window {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  background: var(--cream);
+  border: 2px solid var(--navy);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.floating-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 4px 6px 4px 12px;
+  background: var(--navy);
+  color: var(--cream);
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.floating-window-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-window-close {
+  border: none;
+  background: transparent;
+  color: var(--cream);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.floating-window-close:hover {
+  background: rgba(245, 241, 230, 0.2);
+}
+
+.floating-window-body {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.floating-window-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(
+    135deg,
+    transparent 0%,
+    transparent 45%,
+    var(--navy) 45%,
+    var(--navy) 55%,
+    transparent 55%,
+    transparent 100%
+  );
 }
 
 .sheet-message {
