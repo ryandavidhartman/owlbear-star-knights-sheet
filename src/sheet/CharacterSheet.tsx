@@ -230,9 +230,13 @@ export function CharacterSheet() {
                 <GearRow key={i + 10} index={i + 10} value={value} onChange={setGearSlot} />
               ))}
             </ol>
-            <div className="box free-to-carry">
-              <span className="field-label">Free to Carry</span>
-            </div>
+            <TextAreaField
+              label="Free to Carry"
+              value={data.freeToCarry}
+              onChange={(v) => setField("freeToCarry", v)}
+              className="free-to-carry"
+              rows={10}
+            />
           </div>
         </div>
       </section>
