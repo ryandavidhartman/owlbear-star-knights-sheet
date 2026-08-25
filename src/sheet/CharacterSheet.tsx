@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import OBR, { Item } from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
-import { CHARACTER_SHEET_WINDOW_ID } from "../shared/windowId";
+import { SELECTED_ITEM_CHANNEL, SELECTED_ITEM_STORAGE_KEY } from "../shared/selection";
 import { createDefaultCharacter } from "../shared/defaultCharacter";
 import { AbilityScore, CharacterSheetData } from "../shared/types";
 import { FloatingWindow } from "./FloatingWindow";
@@ -30,6 +30,25 @@ function getItemIdFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("itemId");
 }
 
+/**
+ * The action panel's URL is fixed (declared once in manifest.json), so it
+ * can't carry a per-click `itemId` query param the way the old Modal/Popover
+ * URLs did. Fall back to whatever token was most recently right-clicked
+ * (see src/shared/selection.ts), so reopening the panel shows the last
+ * character you were viewing.
+ */
+function getInitialItemId(): string | null {
+  const fromUrl = getItemIdFromUrl();
+  if (fromUrl) {
+    return fromUrl;
+  }
+  try {
+    return window.localStorage.getItem(SELECTED_ITEM_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function readCharacterData(item: Item): CharacterSheetData {
   const stored = item.metadata[METADATA_KEY];
   if (stored && typeof stored === "object") {
@@ -42,17 +61,30 @@ function readCharacterData(item: Item): CharacterSheetData {
 }
 
 export function CharacterSheet() {
-  const itemId = useMemo(getItemIdFromUrl, []);
+  const [itemId, setItemId] = useState<string | null>(getInitialItemId);
   const [data, setData] = useState<CharacterSheetData | null>(null);
   const dataRef = useRef<CharacterSheetData | null>(null);
   const saveTimeout = useRef<number | undefined>(undefined);
   const resizeFrame = useRef<number | undefined>(undefined);
 
   useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") {
+      return;
+    }
+    const channel = new BroadcastChannel(SELECTED_ITEM_CHANNEL);
+    channel.onmessage = (e) => {
+      if (typeof e.data === "string") {
+        setItemId(e.data);
+      }
+    };
+    return () => channel.close();
+  }, []);
+
+  useEffect(() => {
     const saved = loadSavedWindowSize();
     if (saved) {
-      OBR.popover.setWidth(CHARACTER_SHEET_WINDOW_ID, saved.width);
-      OBR.popover.setHeight(CHARACTER_SHEET_WINDOW_ID, saved.height);
+      OBR.action.setWidth(saved.width);
+      OBR.action.setHeight(saved.height);
     }
   }, []);
 
@@ -61,8 +93,8 @@ export function CharacterSheet() {
       cancelAnimationFrame(resizeFrame.current);
     }
     resizeFrame.current = requestAnimationFrame(() => {
-      OBR.popover.setWidth(CHARACTER_SHEET_WINDOW_ID, width);
-      OBR.popover.setHeight(CHARACTER_SHEET_WINDOW_ID, height);
+      OBR.action.setWidth(width);
+      OBR.action.setHeight(height);
       try {
         window.localStorage.setItem(
           WINDOW_SIZE_STORAGE_KEY,
@@ -79,6 +111,11 @@ export function CharacterSheet() {
       return;
     }
     let mounted = true;
+    // Switching characters (via a fresh right-click while the panel is
+    // already open) should show a loading state, not the previous
+    // character's data, while the new one loads.
+    setData(null);
+    dataRef.current = null;
 
     OBR.scene.items.getItems([itemId]).then((items) => {
       if (mounted && items[0]) {
@@ -107,6 +144,11 @@ export function CharacterSheet() {
     return () => {
       mounted = false;
       unsubscribe();
+      // Cancel any pending debounced save for the character we're
+      // switching away from -- otherwise it could fire after `dataRef`
+      // has moved on to the newly-selected character's data and write
+      // the wrong data to the wrong item.
+      window.clearTimeout(saveTimeout.current);
     };
   }, [itemId]);
 
@@ -190,7 +232,7 @@ export function CharacterSheet() {
   );
 
   const closeWindow = useCallback(() => {
-    OBR.popover.close(CHARACTER_SHEET_WINDOW_ID);
+    OBR.action.close();
   }, []);
 
   if (!itemId) {

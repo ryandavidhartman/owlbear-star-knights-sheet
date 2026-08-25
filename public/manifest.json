@@ -5,5 +5,12 @@
   "author": "Ryan David Hartman",
   "icon": "/icon.svg",
   "description": "Fillable character sheet for the Shadows of the Star Knights TTRPG",
-  "background_url": "/background.html"
+  "background_url": "/background.html",
+  "action": {
+    "title": "Character Sheet",
+    "icon": "/icon.svg",
+    "popover": "/sheet.html",
+    "width": 900,
+    "height": 760
+  }
 }

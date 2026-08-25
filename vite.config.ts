@@ -6,14 +6,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 const GH_PAGES_URL = "https://ryandavidhartman.github.io/owlbear-star-knights-sheet/";
 
 /**
- * The manifest's icon/background_url are resolved by Owlbear Rodeo's own
- * app before our page ever loads, not by our SDK. We can't be sure it does
- * proper relative-URL resolution against the manifest's location rather
- * than a naive `origin + path` concatenation (the SDK itself does the
- * latter, see src/background/contextMenu.ts), so for the deployed build we
- * rewrite those two fields to fully-qualified URLs to remove the ambiguity.
- * Local dev keeps root-relative paths, which are unambiguously correct
- * there since there's no subpath.
+ * The manifest's icon/background_url/action fields are resolved by Owlbear
+ * Rodeo's own app before our page ever loads, not by our SDK. We can't be
+ * sure it does proper relative-URL resolution against the manifest's
+ * location rather than a naive `origin + path` concatenation (the SDK
+ * itself does the latter, see src/background/contextMenu.ts), so for the
+ * deployed build we rewrite those fields to fully-qualified URLs to remove
+ * the ambiguity. Local dev keeps root-relative paths, which are
+ * unambiguously correct there since there's no subpath.
  */
 function rewriteManifestForGhPages(): Plugin {
   return {
@@ -24,6 +24,10 @@ function rewriteManifestForGhPages(): Plugin {
       const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
       manifest.icon = new URL("icon.svg", GH_PAGES_URL).href;
       manifest.background_url = new URL("background.html", GH_PAGES_URL).href;
+      if (manifest.action) {
+        manifest.action.icon = new URL("icon.svg", GH_PAGES_URL).href;
+        manifest.action.popover = new URL("sheet.html", GH_PAGES_URL).href;
+      }
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
     },
   };

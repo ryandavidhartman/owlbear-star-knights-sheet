@@ -17,12 +17,11 @@ interface ResizeState {
 }
 
 /**
- * Chrome-less window drawn inside an Owlbear popover. The popover itself
- * has no title bar or resize handle (Owlbear draws none for extension
- * content), so this supplies both: a header for the title/close button,
- * and a corner grip that resizes the *popover's own footprint* via
- * `onResize` -- OBR.popover.setWidth/setHeight -- rather than just
- * resizing content inside a fixed box.
+ * Chrome-less window drawn inside Owlbear's action panel. We supply our
+ * own header (title/close button) and a corner grip that resizes the
+ * panel's own on-screen footprint via `onResize` (OBR.action.setWidth/
+ * setHeight), on top of whatever native drag/resize Owlbear's action
+ * bubble chrome already provides.
  */
 export function FloatingWindow({
   title,

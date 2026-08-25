@@ -1,6 +1,6 @@
 import OBR from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
-import { CHARACTER_SHEET_WINDOW_ID } from "../shared/windowId";
+import { SELECTED_ITEM_CHANNEL, SELECTED_ITEM_STORAGE_KEY } from "../shared/selection";
 
 const CONTEXT_MENU_ID = getPluginId("context-menu/character-sheet");
 
@@ -27,27 +27,23 @@ export function registerContextMenu() {
         },
       },
     ],
-    onClick(context, elementId) {
+    onClick(context) {
       const item = context.items[0];
       if (!item) {
         return;
       }
-      // Popover (unlike Modal) supports live setWidth/setHeight, so the
-      // resize handle in the sheet can genuinely shrink/grow the on-screen
-      // footprint instead of just rearranging content inside a fixed box.
-      // It has no live reposition API though, so unlike Modal there's no
-      // drag-to-move -- it stays anchored where it opened.
-      OBR.popover.open({
-        id: CHARACTER_SHEET_WINDOW_ID,
-        url: absoluteUrl(`sheet.html?itemId=${encodeURIComponent(item.id)}`),
-        width: 900,
-        height: 760,
-        anchorElementId: elementId,
-        anchorOrigin: { horizontal: "CENTER", vertical: "CENTER" },
-        transformOrigin: { horizontal: "CENTER", vertical: "CENTER" },
-        disableClickAway: true,
-        hidePaper: true,
-      });
+      try {
+        window.localStorage.setItem(SELECTED_ITEM_STORAGE_KEY, item.id);
+      } catch {
+        // best-effort; the sheet panel falls back to its own state if this
+        // is unavailable (e.g. storage blocked)
+      }
+      if (typeof BroadcastChannel !== "undefined") {
+        const channel = new BroadcastChannel(SELECTED_ITEM_CHANNEL);
+        channel.postMessage(item.id);
+        channel.close();
+      }
+      OBR.action.open();
     },
   });
 }
