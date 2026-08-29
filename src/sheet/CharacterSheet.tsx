@@ -1,31 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import OBR, { isImage, Item, Metadata } from "@owlbear-rodeo/sdk";
+import OBR, { Item, Metadata } from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
 import { SELECTED_ITEM_CHANNEL, SELECTED_ITEM_STORAGE_KEY } from "../shared/selection";
 import { createDefaultCharacter } from "../shared/defaultCharacter";
+import {
+  CharacterTemplates,
+  METADATA_KEY,
+  ROOM_TEMPLATES_KEY,
+  getTemplateKey,
+  mirrorCharacterTemplate,
+  readStoredCharacterData,
+} from "../shared/characterTemplates";
 import { AbilityScore, CharacterSheetData } from "../shared/types";
 import { FloatingWindow } from "./FloatingWindow";
 
-const METADATA_KEY = getPluginId("character");
 const SAVE_DEBOUNCE_MS = 300;
 const WINDOW_SIZE_STORAGE_KEY = "sotsk-character-sheet-window-size";
-
-/**
- * Character data lives on the token's own item.metadata, so a brand new
- * token -- e.g. the same character's portrait dragged into a different
- * scene -- gets its own blank sheet: it's a different item id with no
- * metadata of its own. To carry a character's data across scenes, we mirror
- * each save into room metadata (which, unlike scene items, isn't scoped to
- * one scene) keyed by the token's image url, and use it to pre-fill a fresh
- * token that shares that portrait but has no sheet data of its own yet.
- */
-const ROOM_TEMPLATES_KEY = getPluginId("character-templates");
-
-type CharacterTemplates = Record<string, CharacterSheetData>;
-
-function getTemplateKey(item: Item): string | null {
-  return isImage(item) ? item.image.url : null;
-}
 
 function loadSavedWindowSize(): { width: number; height: number } | null {
   try {
@@ -158,10 +148,26 @@ export function CharacterSheet() {
       const templateKey = getTemplateKey(item);
       templateKeyRef.current = templateKey;
       const templates = roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined;
-      const template = templateKey ? templates?.[templateKey] : undefined;
-      const loaded = readCharacterData(item, template);
+      const cachedTemplate = templateKey ? templates?.[templateKey] : undefined;
+      const loaded = readCharacterData(item, cachedTemplate);
       dataRef.current = loaded;
       setData(loaded);
+
+      // This token already has its own saved data (not the template
+      // fallback) but the cross-scene cache is missing or stale for it --
+      // e.g. it was saved before that cache existed. Backfill now, so a new
+      // token elsewhere sharing this portrait doesn't have to wait for this
+      // character to be edited again before it can find this data. The
+      // background script also does this scan periodically; this covers
+      // the gap until that next runs.
+      const ownData = readStoredCharacterData(item);
+      if (
+        ownData &&
+        templateKey &&
+        JSON.stringify(cachedTemplate) !== JSON.stringify(ownData)
+      ) {
+        mirrorCharacterTemplate(templateKey, ownData);
+      }
     });
 
     const unsubscribe = OBR.scene.items.onChange((items) => {
@@ -210,21 +216,7 @@ export function CharacterSheet() {
 
       const templateKey = templateKeyRef.current;
       if (templateKey) {
-        // Best-effort mirror into the cross-scene template cache; the
-        // token's own metadata above is the authoritative save and must
-        // not be affected if this fails (e.g. permissions, transient error).
-        OBR.room
-          .getMetadata()
-          .then((roomMetadata) => {
-            const templates = {
-              ...(roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined),
-            };
-            templates[templateKey] = current;
-            return OBR.room.setMetadata({ [ROOM_TEMPLATES_KEY]: templates });
-          })
-          .catch(() => {
-            // best-effort; the per-token save above already succeeded
-          });
+        mirrorCharacterTemplate(templateKey, current);
       }
     }, SAVE_DEBOUNCE_MS);
   }, [itemId]);
