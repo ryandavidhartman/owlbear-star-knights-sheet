@@ -22,6 +22,10 @@ redeploys automatically on every push to `main`.
 - Right-click a character token → **Character Sheet** opens a modal with the form.
 - Each token gets its own independent sheet, stored as metadata on that token (so it
   travels with the token and persists in the scene).
+- A new token that shares a portrait image with a character you've already filled in
+  (even in a different scene) starts pre-filled with that character's last-saved data,
+  since portrait-keyed sheets are also cached in room metadata. Editing the new token's
+  sheet only changes that token — it doesn't rewrite the original.
 
 ## Development
 

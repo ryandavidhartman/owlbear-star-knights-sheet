@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import OBR, { Item } from "@owlbear-rodeo/sdk";
+import OBR, { isImage, Item, Metadata } from "@owlbear-rodeo/sdk";
 import { getPluginId } from "../shared/pluginId";
 import { SELECTED_ITEM_CHANNEL, SELECTED_ITEM_STORAGE_KEY } from "../shared/selection";
 import { createDefaultCharacter } from "../shared/defaultCharacter";
@@ -9,6 +9,23 @@ import { FloatingWindow } from "./FloatingWindow";
 const METADATA_KEY = getPluginId("character");
 const SAVE_DEBOUNCE_MS = 300;
 const WINDOW_SIZE_STORAGE_KEY = "sotsk-character-sheet-window-size";
+
+/**
+ * Character data lives on the token's own item.metadata, so a brand new
+ * token -- e.g. the same character's portrait dragged into a different
+ * scene -- gets its own blank sheet: it's a different item id with no
+ * metadata of its own. To carry a character's data across scenes, we mirror
+ * each save into room metadata (which, unlike scene items, isn't scoped to
+ * one scene) keyed by the token's image url, and use it to pre-fill a fresh
+ * token that shares that portrait but has no sheet data of its own yet.
+ */
+const ROOM_TEMPLATES_KEY = getPluginId("character-templates");
+
+type CharacterTemplates = Record<string, CharacterSheetData>;
+
+function getTemplateKey(item: Item): string | null {
+  return isImage(item) ? item.image.url : null;
+}
 
 function loadSavedWindowSize(): { width: number; height: number } | null {
   try {
@@ -49,12 +66,18 @@ function getInitialItemId(): string | null {
   }
 }
 
-function readCharacterData(item: Item): CharacterSheetData {
+function readCharacterData(item: Item, template?: CharacterSheetData): CharacterSheetData {
   const stored = item.metadata[METADATA_KEY];
   if (stored && typeof stored === "object") {
     return {
       ...createDefaultCharacter(),
       ...(stored as Partial<CharacterSheetData>),
+    };
+  }
+  if (template) {
+    return {
+      ...createDefaultCharacter(),
+      ...template,
     };
   }
   return createDefaultCharacter();
@@ -66,6 +89,9 @@ export function CharacterSheet() {
   const dataRef = useRef<CharacterSheetData | null>(null);
   const saveTimeout = useRef<number | undefined>(undefined);
   const resizeFrame = useRef<number | undefined>(undefined);
+  // Which cross-scene template (keyed by portrait image url) this token's
+  // data should be mirrored to on save, if any.
+  const templateKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") {
@@ -116,13 +142,26 @@ export function CharacterSheet() {
     // character's data, while the new one loads.
     setData(null);
     dataRef.current = null;
+    templateKeyRef.current = null;
 
-    OBR.scene.items.getItems([itemId]).then((items) => {
-      if (mounted && items[0]) {
-        const loaded = readCharacterData(items[0]);
-        dataRef.current = loaded;
-        setData(loaded);
+    Promise.all([
+      OBR.scene.items.getItems([itemId]),
+      // Best-effort: the cross-scene template cache is a nice-to-have. If
+      // it's unavailable for any reason, fall back to an empty object so a
+      // token's own already-saved metadata still loads normally.
+      OBR.room.getMetadata().catch((): Metadata => ({})),
+    ]).then(([items, roomMetadata]) => {
+      const item = items[0];
+      if (!mounted || !item) {
+        return;
       }
+      const templateKey = getTemplateKey(item);
+      templateKeyRef.current = templateKey;
+      const templates = roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined;
+      const template = templateKey ? templates?.[templateKey] : undefined;
+      const loaded = readCharacterData(item, template);
+      dataRef.current = loaded;
+      setData(loaded);
     });
 
     const unsubscribe = OBR.scene.items.onChange((items) => {
@@ -168,6 +207,25 @@ export function CharacterSheet() {
           item.metadata[METADATA_KEY] = current;
         }
       });
+
+      const templateKey = templateKeyRef.current;
+      if (templateKey) {
+        // Best-effort mirror into the cross-scene template cache; the
+        // token's own metadata above is the authoritative save and must
+        // not be affected if this fails (e.g. permissions, transient error).
+        OBR.room
+          .getMetadata()
+          .then((roomMetadata) => {
+            const templates = {
+              ...(roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined),
+            };
+            templates[templateKey] = current;
+            return OBR.room.setMetadata({ [ROOM_TEMPLATES_KEY]: templates });
+          })
+          .catch(() => {
+            // best-effort; the per-token save above already succeeded
+          });
+      }
     }, SAVE_DEBOUNCE_MS);
   }, [itemId]);
 
