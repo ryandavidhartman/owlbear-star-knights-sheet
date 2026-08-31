@@ -82,6 +82,11 @@ export function CharacterSheet() {
   // Which cross-scene template (keyed by portrait image url) this token's
   // data should be mirrored to on save, if any.
   const templateKeyRef = useRef<string | null>(null);
+  // The template data itself, so the onChange listener below can fall back
+  // to it the same way the initial load does -- otherwise any unrelated
+  // scene mutation (another token moving, a drawing, etc.) on a token that
+  // hasn't had its own metadata saved yet would blank the sheet back out.
+  const cachedTemplateRef = useRef<CharacterSheetData | undefined>(undefined);
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") {
@@ -133,6 +138,7 @@ export function CharacterSheet() {
     setData(null);
     dataRef.current = null;
     templateKeyRef.current = null;
+    cachedTemplateRef.current = undefined;
 
     Promise.all([
       OBR.scene.items.getItems([itemId]),
@@ -149,6 +155,7 @@ export function CharacterSheet() {
       templateKeyRef.current = templateKey;
       const templates = roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined;
       const cachedTemplate = templateKey ? templates?.[templateKey] : undefined;
+      cachedTemplateRef.current = cachedTemplate;
       const loaded = readCharacterData(item, cachedTemplate);
       dataRef.current = loaded;
       setData(loaded);
@@ -173,7 +180,7 @@ export function CharacterSheet() {
     const unsubscribe = OBR.scene.items.onChange((items) => {
       const item = items.find((candidate) => candidate.id === itemId);
       if (item && mounted) {
-        const loaded = readCharacterData(item);
+        const loaded = readCharacterData(item, cachedTemplateRef.current);
         if (JSON.stringify(loaded) === JSON.stringify(dataRef.current)) {
           // onChange fires for every scene mutation (token drags, drawings,
           // fog, etc.), not just edits to this item's metadata. Skip the
