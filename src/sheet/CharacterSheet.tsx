@@ -87,6 +87,14 @@ export function CharacterSheet() {
   // scene mutation (another token moving, a drawing, etc.) on a token that
   // hasn't had its own metadata saved yet would blank the sheet back out.
   const cachedTemplateRef = useRef<CharacterSheetData | undefined>(undefined);
+  // Snapshot of the cross-scene template as it stood *before* this load,
+  // captured only when this token already had its own data that disagreed
+  // with it -- i.e. some other token sharing this portrait was saved with
+  // different data. Drives the "differs from another scene" banner. We
+  // never auto-apply this over the token's own data (see the "warn, don't
+  // overwrite" decision) -- only an explicit click on the banner's sync
+  // button does that.
+  const [templateMismatch, setTemplateMismatch] = useState<CharacterSheetData | null>(null);
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") {
@@ -139,6 +147,7 @@ export function CharacterSheet() {
     dataRef.current = null;
     templateKeyRef.current = null;
     cachedTemplateRef.current = undefined;
+    setTemplateMismatch(null);
 
     Promise.all([
       OBR.scene.items.getItems([itemId]),
@@ -173,6 +182,13 @@ export function CharacterSheet() {
         templateKey &&
         JSON.stringify(cachedTemplate) !== JSON.stringify(ownData)
       ) {
+        // A template already existed for this portrait and it doesn't
+        // match this token's own data -- some other token sharing this
+        // portrait (in this scene or another) was saved with different
+        // data. Surface that instead of silently picking a winner.
+        if (cachedTemplate) {
+          setTemplateMismatch(cachedTemplate);
+        }
         mirrorCharacterTemplate(templateKey, ownData);
       }
     });
@@ -292,6 +308,19 @@ export function CharacterSheet() {
     OBR.action.close();
   }, []);
 
+  const syncFromTemplate = useCallback(() => {
+    if (!templateMismatch) {
+      return;
+    }
+    const other = templateMismatch;
+    update(() => ({ ...other }));
+    setTemplateMismatch(null);
+  }, [templateMismatch, update]);
+
+  const dismissMismatch = useCallback(() => {
+    setTemplateMismatch(null);
+  }, []);
+
   if (!itemId) {
     return (
       <FloatingWindow title="Character Sheet" onClose={closeWindow} onResize={handleResize}>
@@ -317,6 +346,23 @@ export function CharacterSheet() {
       onClose={closeWindow}
       onResize={handleResize}
     >
+    <>
+    {templateMismatch && (
+      <div className="sheet-mismatch-banner">
+        <span>
+          This token&rsquo;s data differs from another scene&rsquo;s version of this
+          character (same portrait).
+        </span>
+        <div className="sheet-mismatch-actions">
+          <button type="button" onClick={syncFromTemplate}>
+            Load other version
+          </button>
+          <button type="button" onClick={dismissMismatch}>
+            Dismiss
+          </button>
+        </div>
+      </div>
+    )}
     <div className="sheet">
       <section className="sheet-header">
         <h1 className="sheet-title">
@@ -426,6 +472,7 @@ export function CharacterSheet() {
         </div>
       </section>
     </div>
+    </>
     </FloatingWindow>
   );
 }
