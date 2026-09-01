@@ -1,13 +1,13 @@
 import OBR from "@owlbear-rodeo/sdk";
 import {
   CharacterOwners,
-  CharacterTemplates,
   ROOM_OWNERS_KEY,
-  ROOM_TEMPLATES_KEY,
   getTemplateKey,
   mirrorCharacterOwner,
-  mirrorCharacterTemplate,
+  mirrorCharacterTemplateIfNewer,
+  readCachedTemplate,
   readStoredCharacterData,
+  readStoredUpdatedAt,
 } from "../shared/characterTemplates";
 
 /**
@@ -27,7 +27,6 @@ export async function backfillCharacterTemplates() {
       OBR.room.getMetadata(),
       OBR.player.getRole(),
     ]);
-    const templates = roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined;
     const owners = roomMetadata[ROOM_OWNERS_KEY] as CharacterOwners | undefined;
     // Only the GM's client attempts to reassign Owner -- players generally
     // lack permission to change ownership on tokens they don't already own,
@@ -41,11 +40,15 @@ export async function backfillCharacterTemplates() {
       }
       const stored = readStoredCharacterData(item);
       if (stored) {
-        // This token has its own filled-in sheet, so it's the source of
-        // truth for this portrait: push its data and current Owner into
-        // the cross-scene cache.
-        if (JSON.stringify(templates?.[templateKey]) !== JSON.stringify(stored)) {
-          await mirrorCharacterTemplate(templateKey, stored);
+        // This token has its own filled-in sheet. Only push it into the
+        // cross-scene cache if it's actually newer than what's cached --
+        // otherwise the mere act of loading/scanning whatever scene this
+        // token happens to sit in would clobber a more recently-edited
+        // version of the same character saved elsewhere.
+        const updatedAt = readStoredUpdatedAt(item);
+        const cached = readCachedTemplate(roomMetadata, templateKey);
+        if (!cached || cached.updatedAt < updatedAt) {
+          await mirrorCharacterTemplateIfNewer(templateKey, stored, updatedAt);
         }
         if (item.createdUserId && owners?.[templateKey] !== item.createdUserId) {
           await mirrorCharacterOwner(templateKey, item.createdUserId);

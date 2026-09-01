@@ -4,12 +4,13 @@ import { getPluginId } from "../shared/pluginId";
 import { SELECTED_ITEM_CHANNEL, SELECTED_ITEM_STORAGE_KEY } from "../shared/selection";
 import { createDefaultCharacter } from "../shared/defaultCharacter";
 import {
-  CharacterTemplates,
   METADATA_KEY,
-  ROOM_TEMPLATES_KEY,
+  TIMESTAMP_KEY,
   getTemplateKey,
-  mirrorCharacterTemplate,
+  mirrorCharacterTemplateIfNewer,
+  readCachedTemplate,
   readStoredCharacterData,
+  readStoredUpdatedAt,
 } from "../shared/characterTemplates";
 import { AbilityScore, CharacterSheetData } from "../shared/types";
 import { FloatingWindow } from "./FloatingWindow";
@@ -87,13 +88,12 @@ export function CharacterSheet() {
   // scene mutation (another token moving, a drawing, etc.) on a token that
   // hasn't had its own metadata saved yet would blank the sheet back out.
   const cachedTemplateRef = useRef<CharacterSheetData | undefined>(undefined);
-  // Snapshot of the cross-scene template as it stood *before* this load,
-  // captured only when this token already had its own data that disagreed
-  // with it -- i.e. some other token sharing this portrait was saved with
-  // different data. Drives the "differs from another scene" banner. We
-  // never auto-apply this over the token's own data (see the "warn, don't
-  // overwrite" decision) -- only an explicit click on the banner's sync
-  // button does that.
+  // Cross-scene template as it stood at load time, captured whenever this
+  // token already had its own data that plainly differs from it -- i.e.
+  // some other token sharing this portrait was saved with different data.
+  // Drives the "differs from another scene" banner. We never auto-apply
+  // this over the token's own data (see the "warn, don't overwrite"
+  // decision) -- only an explicit click on the banner's sync button does.
   const [templateMismatch, setTemplateMismatch] = useState<CharacterSheetData | null>(null);
 
   useEffect(() => {
@@ -162,34 +162,27 @@ export function CharacterSheet() {
       }
       const templateKey = getTemplateKey(item);
       templateKeyRef.current = templateKey;
-      const templates = roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined;
-      const cachedTemplate = templateKey ? templates?.[templateKey] : undefined;
-      cachedTemplateRef.current = cachedTemplate;
-      const loaded = readCharacterData(item, cachedTemplate);
+      const cachedTemplate = templateKey ? readCachedTemplate(roomMetadata, templateKey) : undefined;
+      cachedTemplateRef.current = cachedTemplate?.data;
+      const loaded = readCharacterData(item, cachedTemplate?.data);
       dataRef.current = loaded;
       setData(loaded);
 
       // This token already has its own saved data (not the template
-      // fallback) but the cross-scene cache is missing or stale for it --
-      // e.g. it was saved before that cache existed. Backfill now, so a new
-      // token elsewhere sharing this portrait doesn't have to wait for this
-      // character to be edited again before it can find this data. The
-      // background script also does this scan periodically; this covers
-      // the gap until that next runs.
+      // fallback). Compare it against the cross-scene cache:
+      //  - if they plainly differ, surface the banner regardless of which
+      //    is newer, so the user finds out instead of it being silently
+      //    resolved one way or the other.
+      //  - separately (and independent of the banner), only let this
+      //    token's data become the new shared cache if it's actually the
+      //    newer save -- otherwise merely opening/scanning an older scene
+      //    would clobber a more recently-edited version saved elsewhere.
       const ownData = readStoredCharacterData(item);
-      if (
-        ownData &&
-        templateKey &&
-        JSON.stringify(cachedTemplate) !== JSON.stringify(ownData)
-      ) {
-        // A template already existed for this portrait and it doesn't
-        // match this token's own data -- some other token sharing this
-        // portrait (in this scene or another) was saved with different
-        // data. Surface that instead of silently picking a winner.
-        if (cachedTemplate) {
-          setTemplateMismatch(cachedTemplate);
+      if (ownData && templateKey) {
+        if (cachedTemplate && JSON.stringify(cachedTemplate.data) !== JSON.stringify(ownData)) {
+          setTemplateMismatch(cachedTemplate.data);
         }
-        mirrorCharacterTemplate(templateKey, ownData);
+        mirrorCharacterTemplateIfNewer(templateKey, ownData, readStoredUpdatedAt(item));
       }
     });
 
@@ -230,16 +223,22 @@ export function CharacterSheet() {
       if (!current) {
         return;
       }
+      // A fresh, explicit save from this client is always the newest
+      // version of this token's data -- stamp it so cross-scene comparisons
+      // (here and in the background scan) can tell it apart from an older
+      // save elsewhere sharing the same portrait.
+      const updatedAt = Date.now();
       OBR.scene.items.updateItems([itemId], (items) => {
         const item = items[0];
         if (item) {
           item.metadata[METADATA_KEY] = current;
+          item.metadata[TIMESTAMP_KEY] = updatedAt;
         }
       });
 
       const templateKey = templateKeyRef.current;
       if (templateKey) {
-        mirrorCharacterTemplate(templateKey, current);
+        mirrorCharacterTemplateIfNewer(templateKey, current, updatedAt);
       }
     }, SAVE_DEBOUNCE_MS);
   }, [itemId]);
