@@ -14,8 +14,11 @@ import { CharacterSheetData } from "./types";
  */
 export const METADATA_KEY = getPluginId("character");
 export const ROOM_TEMPLATES_KEY = getPluginId("character-templates");
+export const ROOM_OWNERS_KEY = getPluginId("character-owners");
 
 export type CharacterTemplates = Record<string, CharacterSheetData>;
+/** Portrait image url -> last-known `createdUserId` (the token's "Owner"). */
+export type CharacterOwners = Record<string, string>;
 
 export function getTemplateKey(item: Item): string | null {
   return isImage(item) ? item.image.url : null;
@@ -42,6 +45,30 @@ export async function mirrorCharacterTemplate(
     };
     templates[templateKey] = data;
     await OBR.room.setMetadata({ [ROOM_TEMPLATES_KEY]: templates });
+  } catch {
+    // best-effort; see doc comment above
+  }
+}
+
+/**
+ * Same idea as mirrorCharacterTemplate, but for a token's Owner
+ * (`createdUserId`) instead of its sheet data. A token dropped onto a scene
+ * always starts owned by whoever created it (usually the GM), so this is
+ * what lets a fresh token for a character the GM has already handed off to
+ * a player pick up that player as owner automatically instead of requiring
+ * a manual "Owner" reassignment every time (see applyCachedOwners).
+ */
+export async function mirrorCharacterOwner(templateKey: string, ownerId: string): Promise<void> {
+  try {
+    const roomMetadata = await OBR.room.getMetadata();
+    const owners = {
+      ...(roomMetadata[ROOM_OWNERS_KEY] as CharacterOwners | undefined),
+    };
+    if (owners[templateKey] === ownerId) {
+      return;
+    }
+    owners[templateKey] = ownerId;
+    await OBR.room.setMetadata({ [ROOM_OWNERS_KEY]: owners });
   } catch {
     // best-effort; see doc comment above
   }
