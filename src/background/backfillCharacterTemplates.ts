@@ -1,12 +1,14 @@
 import OBR from "@owlbear-rodeo/sdk";
 import {
-  getTemplateKey,
+  getPortraitUrl,
   mirrorCharacterOwner,
   mirrorCharacterTemplateIfNewer,
   readCachedOwner,
   readCachedTemplate,
+  readCharacterIdForPortrait,
   readStoredCharacterData,
   readStoredUpdatedAt,
+  resolveOrAssignCharacterId,
 } from "../shared/characterTemplates";
 
 /**
@@ -18,6 +20,18 @@ import {
  * existed, or in a scene nobody has re-saved since -- pick up
  * automatically, instead of requiring someone to open and re-save each one
  * by hand (or reassign Owner by hand) for a new token elsewhere to find it.
+ *
+ * This is also what migrates characters saved before characterId existed:
+ * resolveOrAssignCharacterId mints an id the first time an already-filled
+ * token without one is scanned. If that character has sibling tokens with
+ * the same portrait in other scenes, they'll pick up the same id (via the
+ * portrait lookup this registers) the next time *they're* scanned --
+ * scenes converge on one id per character over a backfill pass or two as
+ * the GM cycles through them, with no retyping required. Two sibling
+ * tokens scanned in the very same pass, before either write lands, can
+ * briefly mint two different ids for one character; a subsequent pass
+ * (this runs on every scene change) reconciles it once the first write is
+ * visible.
  */
 export async function backfillCharacterTemplates() {
   try {
@@ -32,32 +46,38 @@ export async function backfillCharacterTemplates() {
     const canReassignOwner = role === "GM";
 
     for (const item of items) {
-      const templateKey = getTemplateKey(item);
-      if (!templateKey) {
-        continue;
-      }
       const stored = readStoredCharacterData(item);
       if (stored) {
-        // This token has its own filled-in sheet. Only push it into the
-        // cross-scene cache if it's actually newer than what's cached --
-        // otherwise the mere act of loading/scanning whatever scene this
-        // token happens to sit in would clobber a more recently-edited
-        // version of the same character saved elsewhere.
-        const updatedAt = readStoredUpdatedAt(item);
-        const cached = readCachedTemplate(roomMetadata, templateKey);
-        if (!cached || cached.updatedAt < updatedAt) {
-          await mirrorCharacterTemplateIfNewer(templateKey, stored, updatedAt);
+        // This token has its own filled-in sheet. Resolve (or, if it
+        // predates characterId, mint) its stable id, then only push it
+        // into the cross-scene cache if it's actually newer than what's
+        // cached -- otherwise the mere act of loading/scanning whatever
+        // scene this token happens to sit in would clobber a more
+        // recently-edited version of the same character saved elsewhere.
+        const characterId = await resolveOrAssignCharacterId(item, roomMetadata);
+        if (!characterId) {
+          continue;
         }
-        if (item.createdUserId && readCachedOwner(roomMetadata, templateKey) !== item.createdUserId) {
-          await mirrorCharacterOwner(templateKey, item.createdUserId);
+        const updatedAt = readStoredUpdatedAt(item);
+        const cached = readCachedTemplate(roomMetadata, characterId);
+        if (!cached || cached.updatedAt < updatedAt) {
+          await mirrorCharacterTemplateIfNewer(characterId, getPortraitUrl(item), stored, updatedAt);
+        }
+        if (item.createdUserId && readCachedOwner(roomMetadata, characterId) !== item.createdUserId) {
+          await mirrorCharacterOwner(characterId, item.createdUserId);
         }
         continue;
       }
 
-      // No sheet of its own yet -- a fresh token. If this portrait has a
-      // known Owner from elsewhere, pull it onto this token instead of
-      // making someone reassign it by hand.
-      const cachedOwner = readCachedOwner(roomMetadata, templateKey);
+      // No sheet of its own yet -- a fresh/blank token. Don't mint an id
+      // for it here (that's only for tokens that actually have data, or
+      // the moment a blank one is first saved) -- just check whether its
+      // portrait already resolves to a known character, and if so, pull
+      // that character's cached Owner onto it instead of making someone
+      // reassign it by hand.
+      const portraitUrl = getPortraitUrl(item);
+      const characterId = portraitUrl ? readCharacterIdForPortrait(roomMetadata, portraitUrl) : undefined;
+      const cachedOwner = characterId ? readCachedOwner(roomMetadata, characterId) : undefined;
       if (canReassignOwner && cachedOwner && item.createdUserId !== cachedOwner) {
         await OBR.scene.items.updateItems([item.id], (draft) => {
           const target = draft[0];

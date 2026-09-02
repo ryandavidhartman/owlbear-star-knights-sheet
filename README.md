@@ -24,12 +24,19 @@ redeploys automatically on every push to `main`.
   travels with the token and persists in the scene).
 - A new token that shares a portrait image with a character you've already filled in
   (even in a different scene) starts pre-filled with that character's last-saved data,
-  since portrait-keyed sheets are also cached in room metadata. Editing the new token's
-  sheet only changes that token — it doesn't rewrite the original.
+  since each character's sheet is also cached in room metadata under a stable id.
+  Editing the new token's sheet only changes that token — it doesn't rewrite the
+  original.
 - If a token's own data ever plainly differs from that cross-scene cache — e.g. someone
   edited the same character on a token in another scene — opening its sheet shows a
   banner rather than silently picking a side. Click **Load other version** to pull in
   the other copy, or **Dismiss** to keep what's on this token.
+- A character's identity survives its art changing later (e.g. swapping in a "wounded"
+  portrait) — the cache is keyed by a stable id, not the image, so this only matters for
+  a *brand new* token whose portrait has genuinely never been used before. In that case
+  the sheet opens blank with a **"link to an existing character"** picker instead of a
+  banner: pick the character by name to load their data onto this token, instead of
+  retyping everything or copy/pasting an existing token as a workaround.
 - Saving is safe with several people editing sheets at once: each player's edits are
   scoped to their own token and character, so simultaneous saves by different players
   (the normal case at the table) don't overwrite each other.

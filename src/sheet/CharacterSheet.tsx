@@ -4,13 +4,17 @@ import { getPluginId } from "../shared/pluginId";
 import { SELECTED_ITEM_CHANNEL, SELECTED_ITEM_STORAGE_KEY } from "../shared/selection";
 import { createDefaultCharacter } from "../shared/defaultCharacter";
 import {
+  CHARACTER_ID_KEY,
+  KnownCharacter,
   METADATA_KEY,
   TIMESTAMP_KEY,
-  getTemplateKey,
+  getPortraitUrl,
+  listKnownCharacters,
   mirrorCharacterTemplateIfNewer,
   readCachedTemplate,
   readStoredCharacterData,
   readStoredUpdatedAt,
+  resolveOrAssignCharacterId,
 } from "../shared/characterTemplates";
 import { AbilityScore, CharacterSheetData } from "../shared/types";
 import { FloatingWindow } from "./FloatingWindow";
@@ -94,9 +98,17 @@ export function CharacterSheet() {
   const dirtyRef = useRef(false);
   const saveTimeout = useRef<number | undefined>(undefined);
   const resizeFrame = useRef<number | undefined>(undefined);
-  // Which cross-scene template (keyed by portrait image url) this token's
-  // data should be mirrored to on save, if any.
-  const templateKeyRef = useRef<string | null>(null);
+  // This token's own portrait image url -- used to resolve/adopt a
+  // characterId on load, and re-registered against that id on every save
+  // (see mirrorCharacterTemplateIfNewer) so the cache keeps learning which
+  // portraits belong to which character even as art changes over time.
+  const portraitUrlRef = useRef<string | null>(null);
+  // The stable id this token's data is mirrored to in the cross-scene cache,
+  // if one has been resolved yet. Null means this token is blank and
+  // unlinked -- no id of its own, no portrait match -- in which case the
+  // "link to an existing character" picker is offered, and a fresh id is
+  // minted the moment this token is actually saved (see performSave).
+  const characterIdRef = useRef<string | null>(null);
   // The template data itself, so the onChange listener below can fall back
   // to it the same way the initial load does -- otherwise any unrelated
   // scene mutation (another token moving, a drawing, etc.) on a token that
@@ -109,6 +121,11 @@ export function CharacterSheet() {
   // this over the token's own data (see the "warn, don't overwrite"
   // decision) -- only an explicit click on the banner's sync button does.
   const [templateMismatch, setTemplateMismatch] = useState<CharacterSheetData | null>(null);
+  // Populated only for a genuinely blank, unlinked token (no own data, no
+  // characterId, no portrait match) -- lets the player pick an existing
+  // character by name instead of retyping it or needing a copy/pasted
+  // token. See linkToCharacter.
+  const [knownCharacters, setKnownCharacters] = useState<KnownCharacter[]>([]);
 
   const performSave = useCallback((targetItemId: string) => {
     const current = dataRef.current;
@@ -126,18 +143,26 @@ export function CharacterSheet() {
     // look like an external change if more typing has moved dataRef on by
     // the time it arrives (see the onChange comment below).
     lastSyncedRef.current = current;
+
+    // A blank, unlinked token (no id of its own, no portrait match, and
+    // nobody used the "link to an existing character" picker) being saved
+    // for the first time is a brand new character -- mint it a stable id
+    // now rather than leaving it permanently unresolved.
+    if (!characterIdRef.current) {
+      characterIdRef.current = crypto.randomUUID();
+    }
+    const characterId = characterIdRef.current;
+
     OBR.scene.items.updateItems([targetItemId], (items) => {
       const item = items[0];
       if (item) {
         item.metadata[METADATA_KEY] = current;
         item.metadata[TIMESTAMP_KEY] = updatedAt;
+        item.metadata[CHARACTER_ID_KEY] = characterId;
       }
     });
 
-    const templateKey = templateKeyRef.current;
-    if (templateKey) {
-      mirrorCharacterTemplateIfNewer(templateKey, current, updatedAt);
-    }
+    mirrorCharacterTemplateIfNewer(characterId, portraitUrlRef.current, current, updatedAt);
   }, []);
 
   useEffect(() => {
@@ -191,9 +216,11 @@ export function CharacterSheet() {
     dataRef.current = null;
     lastSyncedRef.current = null;
     dirtyRef.current = false;
-    templateKeyRef.current = null;
+    portraitUrlRef.current = null;
+    characterIdRef.current = null;
     cachedTemplateRef.current = undefined;
     setTemplateMismatch(null);
+    setKnownCharacters([]);
 
     Promise.all([
       OBR.scene.items.getItems([itemId]),
@@ -201,14 +228,21 @@ export function CharacterSheet() {
       // it's unavailable for any reason, fall back to an empty object so a
       // token's own already-saved metadata still loads normally.
       OBR.room.getMetadata().catch((): Metadata => ({})),
-    ]).then(([items, roomMetadata]) => {
+    ]).then(async ([items, roomMetadata]) => {
       const item = items[0];
       if (!mounted || !item) {
         return;
       }
-      const templateKey = getTemplateKey(item);
-      templateKeyRef.current = templateKey;
-      const cachedTemplate = templateKey ? readCachedTemplate(roomMetadata, templateKey) : undefined;
+      const portraitUrl = getPortraitUrl(item);
+      portraitUrlRef.current = portraitUrl;
+
+      const characterId = await resolveOrAssignCharacterId(item, roomMetadata);
+      if (!mounted) {
+        return;
+      }
+      characterIdRef.current = characterId;
+
+      const cachedTemplate = characterId ? readCachedTemplate(roomMetadata, characterId) : undefined;
       cachedTemplateRef.current = cachedTemplate?.data;
       const loaded = readCharacterData(item, cachedTemplate?.data);
       dataRef.current = loaded;
@@ -225,11 +259,16 @@ export function CharacterSheet() {
       //    newer save -- otherwise merely opening/scanning an older scene
       //    would clobber a more recently-edited version saved elsewhere.
       const ownData = readStoredCharacterData(item);
-      if (ownData && templateKey) {
+      if (ownData && characterId) {
         if (cachedTemplate && JSON.stringify(cachedTemplate.data) !== JSON.stringify(ownData)) {
           setTemplateMismatch(cachedTemplate.data);
         }
-        mirrorCharacterTemplateIfNewer(templateKey, ownData, readStoredUpdatedAt(item));
+        mirrorCharacterTemplateIfNewer(characterId, portraitUrl, ownData, readStoredUpdatedAt(item));
+      } else if (!ownData && !characterId) {
+        // Genuinely blank and unlinked -- no id, no portrait match. Offer
+        // to link to an existing character instead of leaving the player
+        // to type everything from scratch.
+        setKnownCharacters(listKnownCharacters(roomMetadata));
       }
     });
 
@@ -354,6 +393,24 @@ export function CharacterSheet() {
     setTemplateMismatch(null);
   }, []);
 
+  const linkToCharacter = useCallback(
+    (characterId: string) => {
+      const chosen = knownCharacters.find((c) => c.characterId === characterId);
+      if (!chosen) {
+        return;
+      }
+      characterIdRef.current = chosen.characterId;
+      cachedTemplateRef.current = chosen.data;
+      setKnownCharacters([]);
+      update(() => ({ ...chosen.data }));
+    },
+    [knownCharacters, update]
+  );
+
+  const dismissLinkPicker = useCallback(() => {
+    setKnownCharacters([]);
+  }, []);
+
   if (!itemId) {
     return (
       <FloatingWindow title="Character Sheet" onClose={closeWindow} onResize={handleResize}>
@@ -391,6 +448,36 @@ export function CharacterSheet() {
             Load other version
           </button>
           <button type="button" onClick={dismissMismatch}>
+            Dismiss
+          </button>
+        </div>
+      </div>
+    )}
+    {knownCharacters.length > 0 && (
+      <div className="sheet-link-banner">
+        <span>
+          New token, no character linked yet. If this is an existing character,
+          pick it below to load their sheet instead of starting blank.
+        </span>
+        <div className="sheet-link-actions">
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              if (e.target.value) {
+                linkToCharacter(e.target.value);
+              }
+            }}
+          >
+            <option value="" disabled>
+              Choose a character…
+            </option>
+            {knownCharacters.map((c) => (
+              <option key={c.characterId} value={c.characterId}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={dismissLinkPicker}>
             Dismiss
           </button>
         </div>
