@@ -1,10 +1,9 @@
 import OBR from "@owlbear-rodeo/sdk";
 import {
-  CharacterOwners,
-  ROOM_OWNERS_KEY,
   getTemplateKey,
   mirrorCharacterOwner,
   mirrorCharacterTemplateIfNewer,
+  readCachedOwner,
   readCachedTemplate,
   readStoredCharacterData,
   readStoredUpdatedAt,
@@ -27,7 +26,6 @@ export async function backfillCharacterTemplates() {
       OBR.room.getMetadata(),
       OBR.player.getRole(),
     ]);
-    const owners = roomMetadata[ROOM_OWNERS_KEY] as CharacterOwners | undefined;
     // Only the GM's client attempts to reassign Owner -- players generally
     // lack permission to change ownership on tokens they don't already own,
     // and there's no reason for every connected client to race to do it.
@@ -50,7 +48,7 @@ export async function backfillCharacterTemplates() {
         if (!cached || cached.updatedAt < updatedAt) {
           await mirrorCharacterTemplateIfNewer(templateKey, stored, updatedAt);
         }
-        if (item.createdUserId && owners?.[templateKey] !== item.createdUserId) {
+        if (item.createdUserId && readCachedOwner(roomMetadata, templateKey) !== item.createdUserId) {
           await mirrorCharacterOwner(templateKey, item.createdUserId);
         }
         continue;
@@ -59,7 +57,7 @@ export async function backfillCharacterTemplates() {
       // No sheet of its own yet -- a fresh token. If this portrait has a
       // known Owner from elsewhere, pull it onto this token instead of
       // making someone reassign it by hand.
-      const cachedOwner = owners?.[templateKey];
+      const cachedOwner = readCachedOwner(roomMetadata, templateKey);
       if (canReassignOwner && cachedOwner && item.createdUserId !== cachedOwner) {
         await OBR.scene.items.updateItems([item.id], (draft) => {
           const target = draft[0];

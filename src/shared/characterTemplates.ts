@@ -19,20 +19,34 @@ import { CharacterSheetData } from "./types";
  * load or get scanned most recently would always win regardless of which
  * token was actually edited more recently, silently erasing older-but-still
  * different data elsewhere with no way to tell the two had ever diverged.
+ *
+ * Each character's cache entry (template and owner) lives under its own
+ * top-level room metadata key, keyed by portrait url, rather than nested
+ * inside one shared dict. OBR.room.setMetadata merges at the top level --
+ * only the keys you pass are touched, everything else is left alone -- so
+ * one character's write can never race with a concurrent write for a
+ * *different* character. A shared dict would need a local read-merge-write
+ * of the whole thing on every save, and with several players saving
+ * different characters around the same moment, one save's merge could be
+ * built from a read that predates another save's write, silently dropping
+ * it when both write back.
  */
 export const METADATA_KEY = getPluginId("character");
 export const TIMESTAMP_KEY = getPluginId("character-updated-at");
-export const ROOM_TEMPLATES_KEY = getPluginId("character-templates");
-export const ROOM_OWNERS_KEY = getPluginId("character-owners");
 
 export interface CharacterTemplateEntry {
   data: CharacterSheetData;
   /** `Date.now()` at the time this data was saved on its source token. */
   updatedAt: number;
 }
-export type CharacterTemplates = Record<string, CharacterTemplateEntry>;
-/** Portrait image url -> last-known `createdUserId` (the token's "Owner"). */
-export type CharacterOwners = Record<string, string>;
+
+function templateMetadataKey(templateKey: string): string {
+  return getPluginId(`character-template/${templateKey}`);
+}
+
+function ownerMetadataKey(templateKey: string): string {
+  return getPluginId(`character-owner/${templateKey}`);
+}
 
 export function getTemplateKey(item: Item): string | null {
   return isImage(item) ? item.image.url : null;
@@ -72,19 +86,27 @@ export function readCachedTemplate(
   roomMetadata: Record<string, unknown>,
   templateKey: string
 ): CharacterTemplateEntry | undefined {
-  const templates = roomMetadata[ROOM_TEMPLATES_KEY] as
-    | Record<string, unknown>
-    | undefined;
-  return templates ? normalizeTemplateEntry(templates[templateKey]) : undefined;
+  return normalizeTemplateEntry(roomMetadata[templateMetadataKey(templateKey)]);
+}
+
+/** Portrait image url -> last-known `createdUserId` (the token's "Owner"). */
+export function readCachedOwner(
+  roomMetadata: Record<string, unknown>,
+  templateKey: string
+): string | undefined {
+  const owner = roomMetadata[ownerMetadataKey(templateKey)];
+  return typeof owner === "string" ? owner : undefined;
 }
 
 /**
- * Best-effort read-modify-write merge of one template entry into room
- * metadata -- but only if `updatedAt` is newer than (or there's no) existing
- * entry for this portrait, so a stale scan/load can never clobber a more
- * recently-edited version elsewhere. Never throws -- callers' own
- * authoritative saves/reads must not be affected if this fails (permissions,
- * transient error, etc).
+ * Best-effort write of one character's template entry into room metadata --
+ * but only if `updatedAt` is newer than (or there's no) existing entry for
+ * this portrait, so a stale scan/load can never clobber a more recently-
+ * edited version elsewhere. Writes only this character's own metadata key
+ * (see file-level doc comment), so it can't race with a concurrent save of
+ * a different character. Never throws -- callers' own authoritative
+ * saves/reads must not be affected if this fails (permissions, transient
+ * error, etc).
  */
 export async function mirrorCharacterTemplateIfNewer(
   templateKey: string,
@@ -97,11 +119,8 @@ export async function mirrorCharacterTemplateIfNewer(
     if (existing && existing.updatedAt >= updatedAt) {
       return;
     }
-    const templates: Record<string, CharacterTemplateEntry> = {
-      ...(roomMetadata[ROOM_TEMPLATES_KEY] as CharacterTemplates | undefined),
-    };
-    templates[templateKey] = { data, updatedAt };
-    await OBR.room.setMetadata({ [ROOM_TEMPLATES_KEY]: templates });
+    const entry: CharacterTemplateEntry = { data, updatedAt };
+    await OBR.room.setMetadata({ [templateMetadataKey(templateKey)]: entry });
   } catch {
     // best-effort; see doc comment above
   }
@@ -118,14 +137,10 @@ export async function mirrorCharacterTemplateIfNewer(
 export async function mirrorCharacterOwner(templateKey: string, ownerId: string): Promise<void> {
   try {
     const roomMetadata = await OBR.room.getMetadata();
-    const owners = {
-      ...(roomMetadata[ROOM_OWNERS_KEY] as CharacterOwners | undefined),
-    };
-    if (owners[templateKey] === ownerId) {
+    if (readCachedOwner(roomMetadata, templateKey) === ownerId) {
       return;
     }
-    owners[templateKey] = ownerId;
-    await OBR.room.setMetadata({ [ROOM_OWNERS_KEY]: owners });
+    await OBR.room.setMetadata({ [ownerMetadataKey(templateKey)]: ownerId });
   } catch {
     // best-effort; see doc comment above
   }

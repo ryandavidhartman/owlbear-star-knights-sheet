@@ -26,6 +26,13 @@ redeploys automatically on every push to `main`.
   (even in a different scene) starts pre-filled with that character's last-saved data,
   since portrait-keyed sheets are also cached in room metadata. Editing the new token's
   sheet only changes that token — it doesn't rewrite the original.
+- If a token's own data ever plainly differs from that cross-scene cache — e.g. someone
+  edited the same character on a token in another scene — opening its sheet shows a
+  banner rather than silently picking a side. Click **Load other version** to pull in
+  the other copy, or **Dismiss** to keep what's on this token.
+- Saving is safe with several people editing sheets at once: each player's edits are
+  scoped to their own token and character, so simultaneous saves by different players
+  (the normal case at the table) don't overwrite each other.
 
 ## Development
 
