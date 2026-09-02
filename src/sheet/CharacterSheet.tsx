@@ -78,6 +78,20 @@ export function CharacterSheet() {
   const [itemId, setItemId] = useState<string | null>(getInitialItemId);
   const [data, setData] = useState<CharacterSheetData | null>(null);
   const dataRef = useRef<CharacterSheetData | null>(null);
+  // What we last confirmed is (or, for a template-prefilled token that
+  // hasn't saved yet, deterministically resolves to) actually stored on the
+  // item -- distinct from dataRef, which also holds keystrokes typed since
+  // the last debounced save. onChange fires on every scene mutation, not
+  // just edits to this item, so it must diff against "what's stored" here,
+  // not against the in-progress edit buffer -- otherwise any unrelated scene
+  // activity (another player's token move, a drawing, our own save echoing
+  // back) that lands while a keystroke is still unsaved looks like an
+  // external change and reverts the buffer, discarding that keystroke.
+  const lastSyncedRef = useRef<CharacterSheetData | null>(null);
+  // True from the moment an edit is scheduled until performSave actually
+  // runs -- lets the unmount/switch cleanup below flush a pending debounced
+  // save instead of just cancelling it and losing the edit.
+  const dirtyRef = useRef(false);
   const saveTimeout = useRef<number | undefined>(undefined);
   const resizeFrame = useRef<number | undefined>(undefined);
   // Which cross-scene template (keyed by portrait image url) this token's
@@ -95,6 +109,36 @@ export function CharacterSheet() {
   // this over the token's own data (see the "warn, don't overwrite"
   // decision) -- only an explicit click on the banner's sync button does.
   const [templateMismatch, setTemplateMismatch] = useState<CharacterSheetData | null>(null);
+
+  const performSave = useCallback((targetItemId: string) => {
+    const current = dataRef.current;
+    if (!current) {
+      return;
+    }
+    dirtyRef.current = false;
+    // A fresh, explicit save from this client is always the newest version
+    // of this token's data -- stamp it so cross-scene comparisons (here and
+    // in the background scan) can tell it apart from an older save
+    // elsewhere sharing the same portrait.
+    const updatedAt = Date.now();
+    // Record what we're about to write as "known stored" before the write
+    // round-trips back through onChange -- otherwise its own echo would
+    // look like an external change if more typing has moved dataRef on by
+    // the time it arrives (see the onChange comment below).
+    lastSyncedRef.current = current;
+    OBR.scene.items.updateItems([targetItemId], (items) => {
+      const item = items[0];
+      if (item) {
+        item.metadata[METADATA_KEY] = current;
+        item.metadata[TIMESTAMP_KEY] = updatedAt;
+      }
+    });
+
+    const templateKey = templateKeyRef.current;
+    if (templateKey) {
+      mirrorCharacterTemplateIfNewer(templateKey, current, updatedAt);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") {
@@ -145,6 +189,8 @@ export function CharacterSheet() {
     // character's data, while the new one loads.
     setData(null);
     dataRef.current = null;
+    lastSyncedRef.current = null;
+    dirtyRef.current = false;
     templateKeyRef.current = null;
     cachedTemplateRef.current = undefined;
     setTemplateMismatch(null);
@@ -166,6 +212,7 @@ export function CharacterSheet() {
       cachedTemplateRef.current = cachedTemplate?.data;
       const loaded = readCharacterData(item, cachedTemplate?.data);
       dataRef.current = loaded;
+      lastSyncedRef.current = loaded;
       setData(loaded);
 
       // This token already has its own saved data (not the template
@@ -190,13 +237,17 @@ export function CharacterSheet() {
       const item = items.find((candidate) => candidate.id === itemId);
       if (item && mounted) {
         const loaded = readCharacterData(item, cachedTemplateRef.current);
-        if (JSON.stringify(loaded) === JSON.stringify(dataRef.current)) {
+        if (JSON.stringify(loaded) === JSON.stringify(lastSyncedRef.current)) {
           // onChange fires for every scene mutation (token drags, drawings,
-          // fog, etc.), not just edits to this item's metadata. Skip the
-          // re-render when nothing actually changed so unrelated scene
-          // activity doesn't stomp on in-progress typing.
+          // fog, another player's unrelated edit, our own save echoing
+          // back, etc.), not just edits to this item's metadata. Skip the
+          // re-render when what's stored hasn't actually moved from what we
+          // last observed, so unrelated scene activity -- or our own write
+          // round-tripping back after further typing has already moved the
+          // buffer on -- doesn't stomp in-progress edits.
           return;
         }
+        lastSyncedRef.current = loaded;
         dataRef.current = loaded;
         setData(loaded);
       }
@@ -205,43 +256,26 @@ export function CharacterSheet() {
     return () => {
       mounted = false;
       unsubscribe();
-      // Cancel any pending debounced save for the character we're
-      // switching away from -- otherwise it could fire after `dataRef`
-      // has moved on to the newly-selected character's data and write
-      // the wrong data to the wrong item.
       window.clearTimeout(saveTimeout.current);
+      // Flush rather than drop a save that was scheduled but hasn't fired
+      // yet for the character we're switching away from -- otherwise those
+      // last keystrokes are silently lost instead of written.
+      if (dirtyRef.current) {
+        performSave(itemId);
+      }
     };
-  }, [itemId]);
+  }, [itemId, performSave]);
 
   const scheduleSave = useCallback(() => {
     if (!itemId) {
       return;
     }
+    dirtyRef.current = true;
     window.clearTimeout(saveTimeout.current);
     saveTimeout.current = window.setTimeout(() => {
-      const current = dataRef.current;
-      if (!current) {
-        return;
-      }
-      // A fresh, explicit save from this client is always the newest
-      // version of this token's data -- stamp it so cross-scene comparisons
-      // (here and in the background scan) can tell it apart from an older
-      // save elsewhere sharing the same portrait.
-      const updatedAt = Date.now();
-      OBR.scene.items.updateItems([itemId], (items) => {
-        const item = items[0];
-        if (item) {
-          item.metadata[METADATA_KEY] = current;
-          item.metadata[TIMESTAMP_KEY] = updatedAt;
-        }
-      });
-
-      const templateKey = templateKeyRef.current;
-      if (templateKey) {
-        mirrorCharacterTemplateIfNewer(templateKey, current, updatedAt);
-      }
+      performSave(itemId);
     }, SAVE_DEBOUNCE_MS);
-  }, [itemId]);
+  }, [itemId, performSave]);
 
   const update = useCallback(
     (updater: (draft: CharacterSheetData) => CharacterSheetData) => {
