@@ -4,6 +4,16 @@ import { CHARACTER_ID_KEY, listKnownCharacters, readStoredCharacterId } from "..
 
 const TEMPLATE_KEY_PREFIX = getPluginId("character-template/");
 const PORTRAIT_KEY_PREFIX = getPluginId("character-portrait/");
+// Dead top-level keys from the pre-e443158 shared-dict cache scheme --
+// nothing in current source references these constants at all anymore.
+const LEGACY_TEMPLATES_DICT_KEY = getPluginId("character-templates");
+const LEGACY_OWNERS_DICT_KEY = getPluginId("character-owners");
+// character-template/* and character-owner/* suffixes are always a
+// crypto.randomUUID() in current code (see resolveOrAssignCharacterId).
+// Between e443158 and bb78804 the same two prefixes were keyed by portrait
+// *url* instead -- any such entry is a leftover from that intermediate
+// scheme that current code never reads or writes again.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function templateKey(id: string): string {
   return `${TEMPLATE_KEY_PREFIX}${id}`;
@@ -113,10 +123,93 @@ async function mergeCharacters(loserId: string, keeperId: string) {
   console.log(`Merged ${loserId} -> ${keeperId}; restamped ${items.length} token(s) in current scene.`);
 }
 
+/**
+ * Prints every character-template/* and character-owner/* entry with its
+ * full (untruncated) key, whether its suffix is a current-scheme UUID or a
+ * leftover portrait-url from the intermediate scheme, its data's name (for
+ * template entries), and its byte size -- so leftover entries from old
+ * schema versions (see the LEGACY_* comment above) can be told apart from
+ * live ones before deleting anything.
+ */
+async function auditTemplateKeys() {
+  const roomMetadata = await OBR.room.getMetadata();
+  const rows: Array<{ shape: string; name: string; bytes: number; key: string }> = [];
+
+  for (const key of Object.keys(roomMetadata)) {
+    if (key.startsWith(TEMPLATE_KEY_PREFIX)) {
+      const suffix = key.slice(TEMPLATE_KEY_PREFIX.length);
+      const value = roomMetadata[key] as { data?: { name?: string }; name?: string } | undefined;
+      rows.push({
+        shape: UUID_RE.test(suffix) ? "LIVE (characterId)" : "STALE (old portrait-url key)",
+        name: value?.data?.name ?? value?.name ?? "(no name)",
+        bytes: new Blob([JSON.stringify(value)]).size,
+        key,
+      });
+    }
+  }
+  for (const legacyKey of [LEGACY_TEMPLATES_DICT_KEY, LEGACY_OWNERS_DICT_KEY]) {
+    if (roomMetadata[legacyKey] !== undefined) {
+      rows.push({
+        shape: "STALE (dead shared-dict key)",
+        name: "(whole dict, pre-e443158 scheme)",
+        bytes: new Blob([JSON.stringify(roomMetadata[legacyKey])]).size,
+        key: legacyKey,
+      });
+    }
+  }
+
+  for (const row of rows) {
+    console.log(`${row.shape}  bytes=${row.bytes}  name="${row.name}"  key=${row.key}`);
+  }
+  return rows;
+}
+
+/**
+ * Deletes every confirmed-dead legacy key: the two pre-e443158 shared-dict
+ * keys, plus any character-template/* or character-owner/* entry whose
+ * suffix isn't a UUID (leftover from the intermediate portrait-url-keyed
+ * scheme). None of these are read or written by any code still in this
+ * repo -- see the LEGACY_* / UUID_RE comment above. Safe to run repeatedly;
+ * a second run just finds nothing left to delete.
+ */
+async function cleanupLegacyKeys() {
+  const roomMetadata = await OBR.room.getMetadata();
+  const update: Record<string, unknown> = {};
+
+  for (const legacyKey of [LEGACY_TEMPLATES_DICT_KEY, LEGACY_OWNERS_DICT_KEY]) {
+    if (roomMetadata[legacyKey] !== undefined) {
+      update[legacyKey] = undefined;
+    }
+  }
+  for (const key of Object.keys(roomMetadata)) {
+    const prefix = key.startsWith(TEMPLATE_KEY_PREFIX)
+      ? TEMPLATE_KEY_PREFIX
+      : key.startsWith(getPluginId("character-owner/"))
+        ? getPluginId("character-owner/")
+        : null;
+    if (prefix && !UUID_RE.test(key.slice(prefix.length))) {
+      update[key] = undefined;
+    }
+  }
+
+  const freedBytes = Object.keys(update).reduce(
+    (sum, key) => sum + new Blob([JSON.stringify(roomMetadata[key])]).size,
+    0
+  );
+  if (Object.keys(update).length === 0) {
+    console.log("Nothing legacy left to delete.");
+    return;
+  }
+  await OBR.room.setMetadata(update);
+  console.log(`Deleted ${Object.keys(update).length} legacy key(s), freeing ~${freedBytes} bytes.`);
+}
+
 export function installDebugTools() {
   (window as unknown as { __charDebug: unknown }).__charDebug = {
     listDuplicates,
     mergeCharacters,
     roomMetadataSize,
+    auditTemplateKeys,
+    cleanupLegacyKeys,
   };
 }
