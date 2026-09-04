@@ -1,11 +1,13 @@
 import OBR from "@owlbear-rodeo/sdk";
 import { registerContextMenu } from "./contextMenu";
 import { backfillCharacterTemplates } from "./backfillCharacterTemplates";
+import { installDebugTools } from "./debugTools";
 
 const BACKFILL_DEBOUNCE_MS = 500;
 
 OBR.onReady(() => {
   registerContextMenu();
+  installDebugTools();
 
   // Run once for whatever scene is active on load, then again every time
   // the active scene finishes (re)loading -- e.g. a GM switching to a
