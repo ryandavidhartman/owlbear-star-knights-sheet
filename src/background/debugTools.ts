@@ -47,24 +47,55 @@ async function listDuplicates(name: string) {
   return matches;
 }
 
+/**
+ * Owlbear Rodeo caps total room metadata at 16 kB (enforced server-side,
+ * see the "over size limit of 16 kB" error thrown from OBR's own bundle on
+ * a setMetadata call that would exceed it). This app's cross-scene cache
+ * stores one full CharacterSheetData per character under room metadata, so
+ * a handful of characters can approach that ceiling on its own -- and every
+ * write that mirrors into it is wrapped in a best-effort try/catch, so a
+ * rejection here has been failing silently. Run this first to see how much
+ * headroom the room actually has and what's using it.
+ */
+async function roomMetadataSize() {
+  const roomMetadata = await OBR.room.getMetadata();
+  const rows = Object.keys(roomMetadata)
+    .map((key) => ({ key, bytes: new Blob([JSON.stringify(roomMetadata[key])]).size }))
+    .sort((a, b) => b.bytes - a.bytes);
+  const total = rows.reduce((sum, r) => sum + r.bytes, 0);
+  console.log(`Total room metadata: ${total} bytes / 16384 byte limit (${rows.length} keys)`);
+  console.table(rows);
+  return { total, rows };
+}
+
+/**
+ * Deletion first, in its own setMetadata call, so a room sitting right at
+ * the 16 kB ceiling has the best chance of the merge fitting at all --
+ * shrinking the loser's entries before adding the (much smaller) portrait
+ * repoints and owner copy in a second call.
+ */
 async function mergeCharacters(loserId: string, keeperId: string) {
   const roomMetadata = await OBR.room.getMetadata();
-  const update: Record<string, unknown> = {};
 
+  await OBR.room.setMetadata({
+    [templateKey(loserId)]: undefined,
+    [ownerKey(loserId)]: undefined,
+  });
+  console.log(`Deleted loser entries for ${loserId}.`);
+
+  const additions: Record<string, unknown> = {};
   for (const key of Object.keys(roomMetadata)) {
     if (key.startsWith(PORTRAIT_KEY_PREFIX) && roomMetadata[key] === loserId) {
-      update[key] = keeperId;
+      additions[key] = keeperId;
     }
   }
-
   if (roomMetadata[ownerKey(keeperId)] === undefined && roomMetadata[ownerKey(loserId)] !== undefined) {
-    update[ownerKey(keeperId)] = roomMetadata[ownerKey(loserId)];
+    additions[ownerKey(keeperId)] = roomMetadata[ownerKey(loserId)];
   }
-
-  update[templateKey(loserId)] = undefined;
-  update[ownerKey(loserId)] = undefined;
-
-  await OBR.room.setMetadata(update);
+  if (Object.keys(additions).length > 0) {
+    await OBR.room.setMetadata(additions);
+    console.log("Repointed portrait/owner lookups to keeper.");
+  }
 
   const items = await OBR.scene.items.getItems(
     (item) => item.layer === "CHARACTER" && readStoredCharacterId(item) === loserId
@@ -83,5 +114,9 @@ async function mergeCharacters(loserId: string, keeperId: string) {
 }
 
 export function installDebugTools() {
-  (window as unknown as { __charDebug: unknown }).__charDebug = { listDuplicates, mergeCharacters };
+  (window as unknown as { __charDebug: unknown }).__charDebug = {
+    listDuplicates,
+    mergeCharacters,
+    roomMetadataSize,
+  };
 }
